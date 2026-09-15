@@ -13,6 +13,7 @@ const INDIA_OFFSET = '+05:30';
 export const PIPELINE_STATUSES = [
   'New',
   'Demo Scheduled',
+  'Demo follow-up',
   'Interested',
   'Not Interested',
   'Committed',
@@ -24,6 +25,7 @@ export const emptyDashboardMetrics = () => ({
   totalCompanyLeads: 0,
   new: 0,
   demoScheduled: 0,
+  demoFollowUp: 0,
   interested: 0,
   notInterested: 0,
   committed: 0,
@@ -78,6 +80,18 @@ export const buildDashboardMetricMatch = (user, filters, visibilityOverride) => 
   return applyDashboardDateRange(visibility, filters);
 };
 
+export const buildDemoFollowUpDashboardMatch = (matchStage) => {
+  if (!matchStage.createdAt) return matchStage;
+  const { createdAt, ...visibility } = matchStage;
+  return {
+    ...visibility,
+    $or: [
+      { leadStatus: { $ne: 'Demo follow-up' }, createdAt },
+      { leadStatus: 'Demo follow-up', 'statusDetails.demoFollowUpDateTime': createdAt },
+    ],
+  };
+};
+
 const mapGroupedMetrics = (customerStats, companyStats, totalCompanyLeads) => {
   const counts = Object.fromEntries(PIPELINE_STATUSES.map((status) => [status, 0]));
   [...customerStats, ...companyStats].forEach(({ _id, count }) => {
@@ -89,6 +103,7 @@ const mapGroupedMetrics = (customerStats, companyStats, totalCompanyLeads) => {
     totalCompanyLeads,
     new: counts.New,
     demoScheduled: counts['Demo Scheduled'],
+    demoFollowUp: counts['Demo follow-up'],
     interested: counts.Interested,
     notInterested: counts['Not Interested'],
     committed: counts.Committed,
@@ -102,7 +117,7 @@ export const calculateDashboardMetricsAggregated = async (user, filters, visibil
   const visibility = { ...matchStage };
   delete visibility.createdAt;
   const groupPipeline = [
-    { $match: matchStage },
+    { $match: buildDemoFollowUpDashboardMatch(matchStage) },
     { $group: { _id: { $ifNull: ['$leadStatus', 'New'] }, count: { $sum: 1 } } },
   ];
   const [customerStats, companyStats, totalCompanyLeads] = await Promise.all([
@@ -121,6 +136,7 @@ export const calculateDashboardMetricsLegacy = async (user, filters, visibilityO
   const statusToKey = {
     New: 'new',
     'Demo Scheduled': 'demoScheduled',
+    'Demo follow-up': 'demoFollowUp',
     Interested: 'interested',
     'Not Interested': 'notInterested',
     Committed: 'committed',
@@ -134,8 +150,12 @@ export const calculateDashboardMetricsLegacy = async (user, filters, visibilityO
         ? { $or: [{ leadStatus: 'New' }, { leadStatus: null }] }
         : { leadStatus: status };
       const [customers, companies] = await Promise.all([
-        Customer.countDocuments({ ...matchStage, ...statusMatch }),
-        Company.countDocuments({ ...matchStage, ...statusMatch }),
+        Customer.countDocuments(status === 'Demo follow-up' && matchStage.createdAt
+          ? { ...visibility, ...statusMatch, 'statusDetails.demoFollowUpDateTime': matchStage.createdAt }
+          : { ...matchStage, ...statusMatch }),
+        Company.countDocuments(status === 'Demo follow-up' && matchStage.createdAt
+          ? { ...visibility, ...statusMatch, 'statusDetails.demoFollowUpDateTime': matchStage.createdAt }
+          : { ...matchStage, ...statusMatch }),
       ]);
       return [statusToKey[status], customers + companies];
     })),
@@ -158,7 +178,7 @@ export const getDashboardMetrics = async (user, filters, access) => {
     endDate: filters.endDate,
     month: filters.month,
     year: filters.year,
-    implementation: useAggregation ? 'aggregation-company-total' : 'legacy-company-total',
+    implementation: useAggregation ? 'aggregation-demo-follow-up-date' : 'legacy-demo-follow-up-date',
     accessScope: visibility.scope,
     visibleUserIds: visibility.userIds.map(String).sort(),
   });
@@ -167,5 +187,5 @@ export const getDashboardMetrics = async (user, filters, access) => {
       ? calculateDashboardMetricsAggregated(user, filters, visibility.query)
       : calculateDashboardMetricsLegacy(user, filters, visibility.query)
   ));
-  return { ...result, queryCount: useAggregation ? 3 : 15 };
+  return { ...result, queryCount: useAggregation ? 3 : 17 };
 };

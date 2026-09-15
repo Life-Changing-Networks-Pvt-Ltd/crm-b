@@ -40,7 +40,7 @@ const creatorFilter = (visibleUserIds) => (
 );
 
 const INDIA_OFFSET = '+05:30';
-const PIPELINE_STATUSES = ['New', 'Follow Up', 'Interested', 'Demo Scheduled', 'Committed', 'Converted', 'Not Interested'];
+const PIPELINE_STATUSES = ['New', 'Follow Up', 'Interested', 'Demo Scheduled', 'Demo follow-up', 'Committed', 'Converted', 'Not Interested'];
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 const indiaDateString = (date = new Date()) => {

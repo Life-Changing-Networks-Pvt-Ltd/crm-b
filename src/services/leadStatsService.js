@@ -9,11 +9,12 @@ import {
 } from './cacheService.js';
 import { resolveLeadVisibility } from './leadAccessService.js';
 
-const TRACKED_STATUSES = ['Demo Scheduled', 'Follow Up', 'Committed', 'Converted', 'Not Interested'];
+const TRACKED_STATUSES = ['Demo follow-up', 'Demo Scheduled', 'Follow Up', 'Committed', 'Converted', 'Not Interested'];
 const INDIA_OFFSET = '+05:30';
 
 export const emptyLeadStats = () => ({
   totalLeads: 0,
+  demoFollowUp: 0,
   demoScheduled: 0,
   interested: 0,
   notInterested: 0,
@@ -21,6 +22,7 @@ export const emptyLeadStats = () => ({
   converted: 0,
   followUp: 0,
   today: {
+    demoFollowUp: 0,
     demoScheduled: 0,
     followUp: 0,
     committed: 0,
@@ -100,6 +102,7 @@ const applyGroupedCounts = (result, grouped) => {
     'Not Interested': 'notInterested',
     Committed: 'committed',
     Converted: 'converted',
+    'Demo follow-up': 'demoFollowUp',
     'Follow Up': 'followUp',
   };
   grouped.forEach(({ _id, count }) => {
@@ -122,6 +125,7 @@ const dateInRange = (dateExpression, range) => (
 
 const companyStatusDateExpression = (status) => {
   const statusActivityDate = { $ifNull: ['$leadStatusChangedAt', '$createdAt'] };
+  if (status === 'Demo follow-up') return '$statusDetails.demoFollowUpDateTime';
   if (status === 'Demo Scheduled') {
     return {
       $ifNull: [
@@ -159,6 +163,7 @@ const companyPeriodStatsPipeline = (visibility, range) => {
         _id: null,
         totalLeads: { $sum: 1 },
         demoScheduled: statusCount('Demo Scheduled'),
+        demoFollowUp: statusCount('Demo follow-up'),
         followUp: statusCount('Follow Up'),
         interested: statusCount('Interested'),
         notInterested: statusCount('Not Interested'),
@@ -210,6 +215,7 @@ export const calculateLeadStatsAggregated = async (user, filters, visibilityOver
     delete result._id;
     result.today.demoScheduled = todayDemo;
     const todayKey = {
+      'Demo follow-up': 'demoFollowUp',
       'Follow Up': 'followUp',
       Committed: 'committed',
       Converted: 'converted',
@@ -256,6 +262,7 @@ export const calculateLeadStatsAggregated = async (user, filters, visibilityOver
   applyGroupedCounts(result, companyGroups);
   result.today.demoScheduled = todayDemo[0] + todayDemo[1];
   const todayKey = {
+    'Demo follow-up': 'demoFollowUp',
     'Follow Up': 'followUp',
     Committed: 'committed',
     Converted: 'converted',
@@ -281,8 +288,9 @@ export const calculateLeadStatsLegacy = async (user, filters, visibilityOverride
       leadStatus: status,
       ...(periodRange ? { $expr: dateInRange(dateExpression, periodRange) } : {}),
     });
-    const [total, demoScheduled, interested, notInterested, committed, converted, followUp] = await Promise.all([
+    const [total, demoFollowUp, demoScheduled, interested, notInterested, committed, converted, followUp] = await Promise.all([
       Company.countDocuments(visibility),
+      countStatus('Demo follow-up', '$statusDetails.demoFollowUpDateTime'),
       countStatus('Demo Scheduled', {
         $ifNull: [
           '$scheduledDateTime',
@@ -297,6 +305,7 @@ export const calculateLeadStatsLegacy = async (user, filters, visibilityOverride
     ]);
     result.totalLeads = total;
     Object.assign(result, {
+      demoFollowUp,
       demoScheduled,
       interested,
       notInterested,
@@ -316,10 +325,11 @@ export const calculateLeadStatsLegacy = async (user, filters, visibilityOverride
   const [customerCount, companyCount, ...statusCounts] = await Promise.all([
     Customer.countDocuments(matchStage),
     Company.countDocuments(matchStage),
-    ...['Demo Scheduled', 'Interested', 'Not Interested', 'Committed', 'Converted', 'Follow Up'].map(countByStatus),
+    ...['Demo follow-up', 'Demo Scheduled', 'Interested', 'Not Interested', 'Committed', 'Converted', 'Follow Up'].map(countByStatus),
   ]);
   result.totalLeads = customerCount + companyCount;
   [
+    'demoFollowUp',
     'demoScheduled',
     'interested',
     'notInterested',
@@ -345,6 +355,7 @@ export const calculateLeadStatsLegacy = async (user, filters, visibilityOverride
   ]);
   result.today.demoScheduled = todayDemo[0] + todayDemo[1];
   const todayKey = {
+    'Demo follow-up': 'demoFollowUp',
     'Follow Up': 'followUp',
     Committed: 'committed',
     Converted: 'converted',
@@ -364,7 +375,7 @@ export const getCachedLeadStats = async (user, filters) => {
     role: normalizeRole(user.role),
     filters: {
       ...filters,
-      implementation: useAggregation ? 'aggregation' : 'legacy',
+      implementation: useAggregation ? 'aggregation-demo-follow-up-date' : 'legacy-demo-follow-up-date',
       accessScope: visibility.scope,
       visibleUserIds: visibility.userIds.map(String).sort(),
     },
@@ -377,7 +388,7 @@ export const getCachedLeadStats = async (user, filters) => {
   return {
     ...result,
     queryCount: filters.type === 'Company'
-      ? (useAggregation ? 3 : 7)
-      : (useAggregation ? 5 : 21),
+      ? (useAggregation ? 3 : 8)
+      : (useAggregation ? 5 : 23),
   };
 };

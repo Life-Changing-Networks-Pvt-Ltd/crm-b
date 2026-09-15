@@ -30,6 +30,16 @@ test('lead schemas reject the retired Prospective status', () => {
   assert.equal(Lead.schema.path('status').enumValues.includes('Prospective'), false);
 });
 
+test('all lead models accept Demo follow-up and retain existing statuses', async () => {
+  for (const [Model, field] of [[Company, 'leadStatus'], [Customer, 'leadStatus'], [Lead, 'status']]) {
+    for (const status of ['Demo follow-up', 'Demo Scheduled', 'Follow Up', 'New']) {
+      const lead = new Model({ [field]: status });
+      await lead.validate([field]);
+      assert.equal(lead[field], status);
+    }
+  }
+});
+
 test('dashboard aggregation preserves status mapping and null-as-New', { concurrency: false }, async () => {
   const originalCustomerAggregate = Customer.aggregate;
   const originalCompanyAggregate = Company.aggregate;
@@ -38,10 +48,12 @@ test('dashboard aggregation preserves status mapping and null-as-New', { concurr
     Customer.aggregate = async () => [
       { _id: null, count: 2 },
       { _id: 'Interested', count: 3 },
+      { _id: 'Demo follow-up', count: 2 },
     ];
     Company.aggregate = async () => [
       { _id: 'New', count: 4 },
       { _id: 'Converted', count: 1 },
+      { _id: 'Demo follow-up', count: 1 },
     ];
     Company.countDocuments = async (query) => {
       assert.equal(query.createdAt, undefined);
@@ -53,6 +65,7 @@ test('dashboard aggregation preserves status mapping and null-as-New', { concurr
       totalCompanyLeads: 7,
       new: 6,
       demoScheduled: 0,
+      demoFollowUp: 3,
       interested: 3,
       notInterested: 0,
       committed: 0,
@@ -103,19 +116,21 @@ test('lead aggregation uses grouped counts and lookup visibility without loading
     };
     Company.aggregate = async (pipeline) => {
       companyPipeline = pipeline;
-      return [{ _id: 'Converted', count: 3 }];
+      return [{ _id: 'Converted', count: 3 }, { _id: 'Demo follow-up', count: 2 }];
     };
     Customer.countDocuments = async () => 1;
     Company.countDocuments = async () => 2;
     LeadStatusHistory.aggregate = async (pipeline) => {
       historyPipeline = pipeline;
-      return [{ _id: 'Follow Up', count: 4 }];
+      return [{ _id: 'Follow Up', count: 4 }, { _id: 'Demo follow-up', count: 1 }];
     };
     Customer.find = () => { throw new Error('Customer.find must not be used by V2 stats'); };
     Company.find = () => { throw new Error('Company.find must not be used by V2 stats'); };
 
     const stats = await calculateLeadStatsAggregated(admin, { period: 'all' });
-    assert.equal(stats.totalLeads, 6);
+    assert.equal(stats.totalLeads, 8);
+    assert.equal(stats.demoFollowUp, 2);
+    assert.equal(stats.today.demoFollowUp, 1);
     assert.equal(stats.interested, 2);
     assert.equal(stats.converted, 3);
     assert.equal(stats.today.demoScheduled, 3);
@@ -201,6 +216,8 @@ test('legacy company stats keep total leads independent of the selected period',
     );
 
     assert.equal(stats.totalLeads, 1);
+    assert.equal(stats.demoFollowUp, 1);
+    assert.ok(queries.some((query) => query.leadStatus === 'Demo follow-up'));
     assert.deepEqual(queries[0], { assignedTo });
     assert.equal('createdAt' in queries[0], false);
   } finally {

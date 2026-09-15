@@ -1,3 +1,6 @@
+import { FOLLOW_UP_REMINDERS } from './followUp.js';
+import { parseLeadStatusDate } from './leadStatusDate.js';
+
 const TEXT_LIMITS = {
   note: 4000,
   productService: 500,
@@ -13,6 +16,7 @@ const TEXT_LIMITS = {
 const DATE_FIELDS = [
   'expectedDecisionDate',
   'demoDateTime',
+  'demoFollowUpDateTime',
   'expectedClosingDate',
   'expectedCompletionDate',
   'convertedAt',
@@ -21,6 +25,7 @@ const DATE_FIELDS = [
 const NUMBER_FIELDS = ['estimatedDealValue', 'dealValue', 'finalDealValue'];
 const STATUS_FIELDS = {
   New: ['note'],
+  'Demo follow-up': ['demoFollowUpDateTime', 'reminder', 'note'],
   'Demo Scheduled': ['demoDateTime', 'demoMode', 'meetingLink', 'location', 'reminder', 'note'],
   Interested: ['productService', 'expectedDecisionDate', 'note'],
   'Not Interested': ['reason', 'note'],
@@ -43,11 +48,18 @@ export const parseStatusDetails = (status, payload = {}, now = new Date()) => {
     details[field] = cleanText(payload[field], field);
   }
   for (const field of DATE_FIELDS) {
+    if (field === 'demoFollowUpDateTime' && status !== 'Demo follow-up') {
+      details[field] = null;
+      continue;
+    }
     if (!payload[field]) {
       details[field] = field === 'convertedAt' && status === 'Converted' ? new Date(now) : null;
       continue;
     }
-    const value = new Date(payload[field]);
+    if (field === 'demoFollowUpDateTime' && !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/.test(payload[field])) {
+      throw new RangeError('Demo follow-up date and time must include a timezone');
+    }
+    const value = field === 'demoFollowUpDateTime' ? parseLeadStatusDate(payload[field]) : new Date(payload[field]);
     if (Number.isNaN(value.getTime())) throw new RangeError(`${field} is invalid`);
     details[field] = value;
   }
@@ -61,6 +73,13 @@ export const parseStatusDetails = (status, payload = {}, now = new Date()) => {
     details[field] = value;
   }
 
+  if (status === 'Demo follow-up') {
+    details.reminder = details.reminder || '30_minutes';
+    if (!FOLLOW_UP_REMINDERS.includes(details.reminder)) throw new RangeError('Demo follow-up Reminder is invalid');
+  }
+  if (status === 'Demo follow-up' && !details.demoFollowUpDateTime) {
+    throw new RangeError('Demo follow-up Date & Time is required');
+  }
   if (status === 'Demo Scheduled') {
     if (!details.demoDateTime) throw new RangeError('Demo Date & Time is required');
     if (!['Online', 'On-site'].includes(details.demoMode)) {

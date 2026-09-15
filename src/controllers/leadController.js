@@ -7,6 +7,7 @@ import Employee from '../models/Employee.js';
 import CallLog from '../models/CallLog.js';
 import LeadStatusHistory from '../models/LeadStatusHistory.js';
 import FollowUp from '../models/FollowUp.js';
+import { syncDemoFollowUpReminder } from '../services/demoFollowUpReminderService.js';
 import { successResponse, errorResponse } from '../utils/response.js';
 import { getDownlineUserIds, isAdminUser } from '../utils/hierarchy.js';
 import { logActivity } from '../utils/activity.js';
@@ -30,6 +31,8 @@ import { sendAutomatedLeadStatusNotifications } from '../services/leadStatusNoti
 
 const STATUS_ALIASES = {
   demo_scheduled: 'Demo Scheduled',
+  demo_follow_up: 'Demo follow-up',
+  'demo follow-up': 'Demo follow-up',
   followup: 'Follow Up',
   follow_up: 'Follow Up',
   committed: 'Committed',
@@ -40,6 +43,7 @@ const STATUS_ALIASES = {
 const LEAD_STATUSES = new Set([
   'New',
   'Demo Scheduled',
+  'Demo follow-up',
   'Interested',
   'Not Interested',
   'Follow Up',
@@ -609,7 +613,7 @@ export const updateLeadStatus = async (req, res, next) => {
     if (oldStatus !== newStatus) update.leadStatusChangedAt = statusChangedAt;
     if (scheduledDateTime) update.scheduledDateTime = scheduledDateTime;
     if (newStatus === 'Demo Scheduled' && scheduledDateTime) update.followTypeDate = scheduledDateTime;
-    if (Model === Company && details !== undefined) {
+    if ((Model === Company && details !== undefined) || newStatus === 'Demo follow-up') {
       try {
         const parsedDetails = parseStatusDetails(newStatus, details);
         parsedStatusDetails = parsedDetails;
@@ -639,6 +643,7 @@ export const updateLeadStatus = async (req, res, next) => {
     if (Model === Company && newStatus !== 'Follow Up') {
       const activeFollowUps = await FollowUp.find({
         lead: lead._id,
+        ...(newStatus === 'Demo follow-up' ? { activeKey: { $ne: `demo-follow-up:${lead._id}` } } : {}),
         status: { $in: ['Pending', 'Snoozed'] },
       }).select('_id').lean();
       if (activeFollowUps.length) {
@@ -655,6 +660,10 @@ export const updateLeadStatus = async (req, res, next) => {
           cancelFollowUpReminder(followUp._id)
         )));
       }
+    }
+
+    if (Model === Company && (newStatus === 'Demo follow-up' || oldStatus === 'Demo follow-up')) {
+      await syncDemoFollowUpReminder(lead, req.user._id);
     }
 
     const lastCall = await CallLog.findOne({

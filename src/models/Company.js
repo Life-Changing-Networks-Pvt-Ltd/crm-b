@@ -94,7 +94,7 @@ const companySchema = new mongoose.Schema({
   assignedTo: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
   leadStatus: {
     type: String,
-    enum: ['New', 'Demo Scheduled', 'Interested', 'Not Interested', 'Committed', 'Converted', 'Follow Up'],
+    enum: ['New', 'Demo Scheduled', 'Demo follow-up', 'Interested', 'Not Interested', 'Committed', 'Converted', 'Follow Up'],
     default: 'New'
   },
   leadStatusChangedAt: {
@@ -110,6 +110,7 @@ const companySchema = new mongoose.Schema({
     productService: { type: String, maxlength: 500 },
     expectedDecisionDate: Date,
     demoDateTime: Date,
+    demoFollowUpDateTime: Date,
     demoMode: { type: String, enum: ['Online', 'On-site', null], default: null },
     meetingLink: { type: String, maxlength: 1000 },
     location: { type: String, maxlength: 500 },

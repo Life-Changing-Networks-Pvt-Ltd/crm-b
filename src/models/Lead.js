@@ -32,8 +32,16 @@ const leadSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['New', 'Demo Scheduled', 'Interested', 'Not Interested', 'Committed', 'Converted', 'Follow Up'],
+    enum: ['New', 'Demo Scheduled', 'Demo follow-up', 'Interested', 'Not Interested', 'Committed', 'Converted', 'Follow Up'],
     default: 'New',
+  },
+  statusDetails: {
+    status: String,
+    demoFollowUpDateTime: Date,
+    reminder: String,
+    note: { type: String, maxlength: 4000 },
+    savedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    savedAt: Date,
   },
   leadStatusChangedAt: {
     type: Date,

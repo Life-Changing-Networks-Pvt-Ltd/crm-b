@@ -3,6 +3,7 @@ import LeadStatusHistory from '../models/LeadStatusHistory.js';
 import { successResponse, errorResponse } from '../utils/response.js';
 import { isAdminUser } from '../utils/hierarchy.js';
 import { logActivity } from '../utils/activity.js';
+import { syncDemoFollowUpReminder, cancelDemoFollowUpReminder } from '../services/demoFollowUpReminderService.js';
 import { invalidateLeadMetricsCaches } from '../services/cacheService.js';
 import { escapeRegex, pagedData, paginationMeta, parsePagination, safeSort } from '../services/listQueryService.js';
 import { resolveLeadVisibility } from '../services/leadAccessService.js';
@@ -61,7 +62,7 @@ export const getCompaniesPaged = async (req, res, next) => {
 
     const [items, total, cities] = await Promise.all([
       Company.find(filter)
-        .select('companyName customerName customerDesignation email1 mobileNo website1 city country leadStatus followUpRequired followUpDateTime followUpType followUpPriority followUpReminder followTypeDate scheduledDateTime createdBy assignedTo createdAt')
+        .select('companyName customerName customerDesignation email1 mobileNo website1 city country leadStatus followUpRequired followUpDateTime followUpType followUpPriority followUpReminder followTypeDate scheduledDateTime statusDetails.demoFollowUpDateTime createdBy assignedTo createdAt')
         .populate('createdBy', 'name role')
         .populate('assignedTo', 'name')
         .sort(safeSort(req.query, ['createdAt', 'companyName', 'city']))
@@ -122,7 +123,7 @@ export const createCompany = async (req, res, next) => {
     }
 
     let parsedStatusDetails;
-    if (statusDetails !== undefined) {
+    if (statusDetails !== undefined || finalLeadStatus === 'Demo follow-up') {
       try {
         parsedStatusDetails = parseStatusDetails(finalLeadStatus, statusDetails);
       } catch (error) {
@@ -163,6 +164,8 @@ export const createCompany = async (req, res, next) => {
       assignedTo: [assignedTo || req.user._id],
       createdBy: req.user._id // Taken from authMiddleware
     });
+
+    if (finalLeadStatus === 'Demo follow-up') await syncDemoFollowUpReminder(company, req.user._id);
 
     await LeadStatusHistory.create({
       lead: company._id,
@@ -232,7 +235,7 @@ export const updateCompany = async (req, res, next) => {
       companyName, customerName, customerDesignation, email1, email2, 
       mobileNo, phoneNo, products, businessType, address1, address2, 
       city, state, country, website1, website2, followTypeDate, followType,
-      leadStatus, assignedTo, messageNotes, scheduledDateTime
+      leadStatus, assignedTo, messageNotes, scheduledDateTime, statusDetails
     } = req.body;
     const oldStatus = company.leadStatus;
     const finalLeadStatus = scheduledDateTime ? 'Demo Scheduled' : leadStatus;
@@ -256,6 +259,20 @@ export const updateCompany = async (req, res, next) => {
         leadStatus: finalLeadStatus || oldStatus,
       },
     };
+    if ((finalLeadStatus || oldStatus) === 'Demo follow-up' && (statusDetails !== undefined || oldStatus !== 'Demo follow-up')) {
+      if (!userHasPermission(req.access, PERMISSIONS.LEADS_CHANGE_STATUS)) {
+        return errorResponse(res, 403, 'You do not have permission to change lead status');
+      }
+      try {
+        update.$set.statusDetails = {
+          ...parseStatusDetails('Demo follow-up', statusDetails),
+          savedBy: req.user._id,
+          savedAt: new Date(),
+        };
+      } catch (error) {
+        return errorResponse(res, 400, error.message);
+      }
+    }
     if (assignedTo) update.$addToSet = { assignedTo };
     company = await Company.findOneAndUpdate(
       { _id: req.params.id, ...visibility },
@@ -264,6 +281,12 @@ export const updateCompany = async (req, res, next) => {
     )
       .populate('createdBy', 'name role email')
       .populate('assignedTo', 'name role email');
+
+    if (oldStatus === 'Demo follow-up' || finalLeadStatus === 'Demo follow-up') {
+      if (update.$set.statusDetails || company.leadStatus !== 'Demo follow-up') {
+        await syncDemoFollowUpReminder(company, req.user._id);
+      }
+    }
 
     if (finalLeadStatus && oldStatus !== finalLeadStatus) {
       await LeadStatusHistory.create({
@@ -302,6 +325,7 @@ export const deleteCompany = async (req, res, next) => {
       return res.status(404).json({ success: false, message: 'Company not found' });
     }
 
+    if (company.leadStatus === 'Demo follow-up') await cancelDemoFollowUpReminder(company);
     await company.deleteOne();
 
     await invalidateLeadMetricsCaches();

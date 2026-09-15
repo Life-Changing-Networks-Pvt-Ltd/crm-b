@@ -157,7 +157,7 @@ export const getSalesReportData = async (query = {}) => {
   metrics.conversionRate = metrics.newLeads ? Number(((metrics.convertedCustomers / metrics.newLeads) * 100).toFixed(1)) : 0;
   metrics.averageDealValue = metrics.convertedCustomers ? Math.round(metrics.wonRevenue / metrics.convertedCustomers) : 0;
   const pipelineMap = new Map(pipelineRows.map((row) => [row._id, row.count]));
-  const statuses = ['New', 'Follow Up', 'Interested', 'Demo Scheduled', 'Committed', 'Converted', 'Not Interested'];
+  const statuses = ['New', 'Follow Up', 'Interested', 'Demo Scheduled', 'Demo follow-up', 'Committed', 'Converted', 'Not Interested'];
   return {
     items: result.items || [],
     pagination: paginationMeta({ page, limit, total }),
