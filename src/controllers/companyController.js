@@ -1,4 +1,5 @@
 import Company from '../models/Company.js';
+import { cancelLeadFollowUpReminders } from '../services/followUpReminderService.js';
 import LeadStatusHistory from '../models/LeadStatusHistory.js';
 import { successResponse, errorResponse } from '../utils/response.js';
 import { isAdminUser } from '../utils/hierarchy.js';
@@ -325,8 +326,8 @@ export const deleteCompany = async (req, res, next) => {
       return res.status(404).json({ success: false, message: 'Company not found' });
     }
 
-    if (company.leadStatus === 'Demo follow-up') await cancelDemoFollowUpReminder(company);
     await company.deleteOne();
+    await cancelLeadFollowUpReminders([company._id]);
 
     await invalidateLeadMetricsCaches();
     return successResponse(res, 200, 'Company deleted successfully');

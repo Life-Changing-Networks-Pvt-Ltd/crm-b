@@ -5,6 +5,7 @@ import { resolveLeadVisibility } from '../services/leadAccessService.js';
 import { getFirstReminderAt, parseFollowUpPayload } from '../utils/followUp.js';
 import {
   cancelFollowUpReminder,
+  filterExistingLeadReminders,
   followUpReminderPayload,
   scheduleFollowUpReminder,
 } from '../services/followUpReminderService.js';
@@ -166,7 +167,8 @@ export const getPendingFollowUps = async (req, res) => {
         { status: 'Snoozed', nextReminderAt: { $lte: new Date() } },
       ],
     }).sort({ lastRemindedAt: -1 }).limit(20).lean();
-    return res.json({ data: items.map(followUpReminderPayload) });
+    const valid = await filterExistingLeadReminders(items);
+    return res.json({ data: valid.map(followUpReminderPayload) });
   } catch (error) {
     console.error('Get pending follow-ups error:', error);
     return res.status(500).json({ message: 'Failed to load pending reminders' });
