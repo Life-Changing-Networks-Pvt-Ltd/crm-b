@@ -16,7 +16,12 @@ import { normalizePhone } from '../services/plivoService.js';
 import { saveCallbackRoute } from '../services/callbackRoutingService.js';
 import { selectNextCallingNumber } from '../services/callingNumberPoolService.js';
 import { getCachedLeadStats } from '../services/leadStatsService.js';
-import { invalidateLeadMetricsCaches } from '../services/cacheService.js';
+import {
+  buildLeadDetailCacheKey,
+  invalidateLeadDetailCaches,
+  invalidateLeadMetricsCaches,
+  withJsonCache,
+} from '../services/cacheService.js';
 import { escapeRegex, pagedData, paginationMeta, parsePagination } from '../services/listQueryService.js';
 import { parseLeadStatusDate } from '../utils/leadStatusDate.js';
 import { parseFollowUpPayload } from '../utils/followUp.js';
@@ -134,19 +139,31 @@ const assertCanAssignToUser = async (user, assignedTo) => {
   return assignableIds.some((id) => id.toString() === assignedTo.toString());
 };
 
-const findUnifiedLeadForUser = async (type, id, user, populate = false) => {
+const findUnifiedLeadForUser = async (
+  type,
+  id,
+  user,
+  populate = false,
+  resolvedVisibility = null,
+  excludeComments = false,
+) => {
   const Model = getLeadModel(type);
   if (!Model) return null;
 
-  const visibility = await resolveLeadVisibility(user);
+  const visibility = resolvedVisibility || await resolveLeadVisibility(user);
   const query = { _id: id, ...visibility.query };
 
   let dbQuery = Model.findOne(query);
-  if (populate) {
+  if (populate === 'activity') {
+    dbQuery = dbQuery
+      .select('comments')
+      .populate('comments.createdBy', 'name');
+  } else if (populate) {
     dbQuery = dbQuery
       .populate('createdBy', 'name role email')
       .populate('assignedTo', 'name role email')
       .populate('comments.createdBy', 'name');
+    if (excludeComments) dbQuery = dbQuery.select('-comments');
     if (Model === Company) {
       dbQuery = dbQuery.populate('statusDetails.savedBy', 'name');
     }
@@ -491,11 +508,34 @@ export const createLead = async (req, res, next) => {
 // @route   GET /api/leads/unified/:type/:id
 // @access  Private
 export const getUnifiedLead = async (req, res, next) => {
+  const startedAt = Date.now();
   try {
     const { type, id } = req.params;
+    const summaryOnly = req.query.summary === 'true';
+    const visibility = await resolveLeadVisibility(req.user, req.access);
     let lead;
-    
-    lead = await findUnifiedLeadForUser(type, id, req.user, true);
+
+    if (summaryOnly) {
+      const cacheKey = await buildLeadDetailCacheKey({
+        userId: req.user._id.toString(),
+        role: req.user.role,
+        accessScope: visibility.scope,
+        visibleUserIds: visibility.userIds,
+        leadType: type,
+        leadId: id,
+      });
+      const cached = await withJsonCache({ key: cacheKey, ttlSeconds: 600 }, async () => {
+        const visibleLead = await findUnifiedLeadForUser(type, id, req.user, true, visibility, true);
+        return visibleLead?.toObject() || null;
+      });
+      const duration = Date.now() - startedAt;
+      res.setHeader('X-Cache', cached.cacheStatus);
+      res.setHeader('Server-Timing', `lead-detail;dur=${duration};desc="cache ${cached.cacheStatus}"`);
+      if (!cached.value) return res.status(404).json({ success: false, message: 'Lead not found' });
+      return successResponse(res, 200, 'Lead fetched', cached.value);
+    }
+
+    lead = await findUnifiedLeadForUser(type, id, req.user, true, visibility);
 
     if (!lead) return res.status(404).json({ success: false, message: 'Lead not found' });
 
@@ -517,6 +557,36 @@ export const getUnifiedLead = async (req, res, next) => {
       ...lead.toObject(),
       statusHistory,
       messages,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getUnifiedLeadActivity = async (req, res, next) => {
+  try {
+    const { type, id } = req.params;
+    const lead = await findUnifiedLeadForUser(type, id, req.user, 'activity');
+    if (!lead) return res.status(404).json({ success: false, message: 'Lead not found' });
+
+    const [statusHistory, messages] = await Promise.all([
+      LeadStatusHistory.find({ lead: id, leadModel: type })
+        .populate('changedBy', 'name')
+        .populate('call')
+        .sort({ changedAt: -1 })
+        .limit(200)
+        .lean(),
+      LeadMessage.find({ lead: id, leadModel: type })
+        .populate('createdBy', 'name email')
+        .sort({ createdAt: -1 })
+        .limit(200)
+        .lean(),
+    ]);
+
+    return successResponse(res, 200, 'Lead activity fetched', {
+      statusHistory,
+      messages,
+      comments: lead.comments || [],
     });
   } catch (error) {
     next(error);
@@ -567,6 +637,8 @@ export const updateLeadNotificationPreferences = async (req, res, next) => {
       entityId: lead._id,
       metadata: { channel, previousValue, enabled },
     });
+
+    await invalidateLeadDetailCaches();
 
     return successResponse(res, 200, `${channel === 'email' ? 'Email' : 'WhatsApp'} notifications ${enabled ? 'enabled' : 'disabled'}`, {
       notificationPreferences: lead.notificationPreferences,
@@ -831,6 +903,8 @@ export const addLeadComment = async (req, res, next) => {
     const lead = await Model.findByIdAndUpdate(id, { $push: { comments: comment } }, { new: true }).populate('comments.createdBy', 'name');
 
     if (!lead) return res.status(404).json({ success: false, message: 'Lead not found' });
+
+    await invalidateLeadDetailCaches();
 
     return successResponse(res, 200, 'Comment added', lead);
   } catch (error) {

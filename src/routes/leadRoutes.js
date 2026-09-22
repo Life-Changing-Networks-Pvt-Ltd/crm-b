@@ -6,6 +6,7 @@ import {
   getAllCombinedLeads,
   getAllCombinedLeadsPaged,
   getUnifiedLead,
+  getUnifiedLeadActivity,
   updateLeadNotificationPreferences,
   updateLeadStatus,
   updateLeadFollowUp,
@@ -60,6 +61,9 @@ router.route('/calls/:callLogId/comment')
 
 router.route('/unified/:type/:id')
   .get(protect, requirePermission(PERMISSIONS.LEADS_VIEW), getUnifiedLead);
+
+router.route('/unified/:type/:id/activity')
+  .get(protect, requirePermission(PERMISSIONS.LEADS_VIEW), getUnifiedLeadActivity);
 
 router.route('/unified/:type/:id/call')
   .post(protect, requirePermission(PERMISSIONS.CALLS_MANAGE), startLeadCall);

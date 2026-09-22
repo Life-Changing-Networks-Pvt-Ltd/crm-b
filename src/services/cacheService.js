@@ -303,6 +303,14 @@ const getMetricsVersion = async () => (
   await runRedis((client) => client.get('crm:lead-metrics:version')) || '0'
 );
 
+let localLeadDetailVersion = null;
+const getLeadDetailVersion = async () => {
+  const sharedVersion = await runRedis((client) => client.get('crm:lead-detail:version'));
+  if (sharedVersion !== null) localLeadDetailVersion = Number(sharedVersion);
+  localLeadDetailVersion ??= 0;
+  return localLeadDetailVersion;
+};
+
 export const buildDashboardMetricsCacheKey = async ({
   userId,
   role,
@@ -323,6 +331,43 @@ export const buildDashboardMetricsCacheKey = async ({
 export const buildLeadStatsCacheKey = async ({ userId, role, filters }) => {
   const version = await getMetricsVersion();
   return `leads:stats:v${version}:${userId}:${role}:${stableFiltersHash(filters)}`;
+};
+
+export const buildCompanyLeadsPageCacheKey = async ({
+  userId,
+  role,
+  accessScope,
+  visibleUserIds = [],
+  filters,
+}) => {
+  const [dataVersion, accessVersion] = await Promise.all([
+    getMetricsVersion(),
+    getAccessCacheVersion(),
+  ]);
+  const visibilityHash = stableFiltersHash({
+    accessScope,
+    visibleUserIds: visibleUserIds.map(String).sort(),
+  });
+  return `company-leads:v${dataVersion}:a${accessVersion}:${userId}:${role}:${visibilityHash}:${stableFiltersHash(filters)}`;
+};
+
+export const buildLeadDetailCacheKey = async ({
+  userId,
+  role,
+  accessScope,
+  visibleUserIds = [],
+  leadType,
+  leadId,
+}) => {
+  const [dataVersion, accessVersion] = await Promise.all([
+    getLeadDetailVersion(),
+    getAccessCacheVersion(),
+  ]);
+  const visibilityHash = stableFiltersHash({
+    accessScope,
+    visibleUserIds: visibleUserIds.map(String).sort(),
+  });
+  return `lead-detail:v${dataVersion}:a${accessVersion}:${userId}:${role}:${visibilityHash}:${leadType}:${leadId}`;
 };
 
 export const withSafeCache = async ({ key, ttlSeconds = 45 }, producer) => {
@@ -347,7 +392,23 @@ export const withSafeCache = async ({ key, ttlSeconds = 45 }, producer) => {
 };
 
 export const invalidateLeadMetricsCaches = async () => {
-  await runRedis((client) => client.incr('crm:lead-metrics:version'));
+  const versions = await runRedis((client) => {
+    const pipeline = client.pipeline();
+    pipeline.incr('crm:lead-metrics:version');
+    pipeline.incr('crm:lead-detail:version');
+    return pipeline.exec();
+  });
+  const nextDetailVersion = versions?.[1]?.[1];
+  localLeadDetailVersion = nextDetailVersion === undefined
+    ? Number(localLeadDetailVersion || 0) + 1
+    : Number(nextDetailVersion);
+};
+
+export const invalidateLeadDetailCaches = async () => {
+  const next = await runRedis((client) => client.incr('crm:lead-detail:version'));
+  localLeadDetailVersion = next === null
+    ? Number(localLeadDetailVersion || 0) + 1
+    : Number(next);
 };
 
 export const warmCacheConnection = async () => {

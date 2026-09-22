@@ -5,7 +5,11 @@ import { successResponse, errorResponse } from '../utils/response.js';
 import { isAdminUser } from '../utils/hierarchy.js';
 import { logActivity } from '../utils/activity.js';
 import { syncDemoFollowUpReminder, cancelDemoFollowUpReminder } from '../services/demoFollowUpReminderService.js';
-import { invalidateLeadMetricsCaches } from '../services/cacheService.js';
+import {
+  buildCompanyLeadsPageCacheKey,
+  invalidateLeadMetricsCaches,
+  withJsonCache,
+} from '../services/cacheService.js';
 import { escapeRegex, pagedData, paginationMeta, parsePagination, safeSort } from '../services/listQueryService.js';
 import { resolveLeadVisibility } from '../services/leadAccessService.js';
 import { userHasPermission } from '../services/accessControlService.js';
@@ -41,9 +45,14 @@ export const getCompanies = async (req, res, next) => {
 };
 
 export const getCompaniesPaged = async (req, res, next) => {
+  const startedAt = Date.now();
   try {
     const { page, limit, skip, search } = parsePagination(req.query);
-    const { query: visibility } = await resolveLeadVisibility(req.user);
+    const {
+      query: visibility,
+      scope: accessScope,
+      userIds: visibleUserIds,
+    } = await resolveLeadVisibility(req.user, req.access);
     const filter = { ...visibility };
     if (search) {
       const pattern = new RegExp(escapeRegex(search), 'i');
@@ -61,23 +70,49 @@ export const getCompaniesPaged = async (req, res, next) => {
     }
     if (req.query.city && req.query.city !== 'all') filter.city = req.query.city;
 
-    const [items, total, cities] = await Promise.all([
-      Company.find(filter)
-        .select('companyName customerName customerDesignation email1 mobileNo website1 city country leadStatus followUpRequired followUpDateTime followUpType followUpPriority followUpReminder followTypeDate scheduledDateTime statusDetails.demoFollowUpDateTime createdBy assignedTo createdAt')
-        .populate('createdBy', 'name role')
-        .populate('assignedTo', 'name')
-        .sort(safeSort(req.query, ['createdAt', 'companyName', 'city']))
-        .skip(skip)
-        .limit(limit)
-        .lean(),
-      Company.countDocuments(filter),
-      Company.distinct('city', visibility),
-    ]);
-    return successResponse(res, 200, 'Companies page fetched successfully', pagedData(
-      items,
-      paginationMeta({ page, limit, total }),
-      { cities: cities.filter(Boolean).sort() },
-    ));
+    const cacheKey = await buildCompanyLeadsPageCacheKey({
+      userId: req.user._id.toString(),
+      role: req.user.role,
+      accessScope,
+      visibleUserIds,
+      filters: {
+        page,
+        limit,
+        search,
+        status: req.query.status || 'all',
+        city: req.query.city || 'all',
+        period: req.query.period || '',
+        startDate: req.query.startDate || '',
+        endDate: req.query.endDate || '',
+        month: req.query.month || '',
+        year: req.query.year || '',
+        sortBy: req.query.sortBy || 'createdAt',
+        sortOrder: req.query.sortOrder || 'desc',
+      },
+    });
+    const { value, cacheStatus } = await withJsonCache({ key: cacheKey, ttlSeconds: 600 }, async () => {
+      const [items, total, cities] = await Promise.all([
+        Company.find(filter)
+          .select('companyName customerName customerDesignation email1 mobileNo website1 city country leadStatus followUpRequired followUpDateTime followUpType followUpPriority followUpReminder followTypeDate scheduledDateTime statusDetails.demoFollowUpDateTime createdBy assignedTo createdAt')
+          .populate('createdBy', 'name role')
+          .populate('assignedTo', 'name')
+          .sort(safeSort(req.query, ['createdAt', 'companyName', 'city']))
+          .skip(skip)
+          .limit(limit)
+          .lean(),
+        Company.countDocuments(filter),
+        Company.distinct('city', visibility),
+      ]);
+      return pagedData(
+        items,
+        paginationMeta({ page, limit, total }),
+        { cities: cities.filter(Boolean).sort() },
+      );
+    });
+    const duration = Date.now() - startedAt;
+    res.setHeader('X-Cache', cacheStatus);
+    res.setHeader('Server-Timing', `company-leads;dur=${duration};desc="cache ${cacheStatus}"`);
+    return successResponse(res, 200, 'Companies page fetched successfully', value);
   } catch (error) {
     next(error);
   }

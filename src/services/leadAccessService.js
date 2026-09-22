@@ -1,6 +1,16 @@
 import { resolveEffectiveAccess, getUserTeamMemberIds } from './accessControlService.js';
 import { getDownlineUserIds, isAdminUser } from '../utils/hierarchy.js';
 import mongoose from 'mongoose';
+import { getAccessCacheVersion, withJsonCache } from './cacheService.js';
+
+const cachedScopedUserIds = async (user, scope, producer) => {
+  const version = await getAccessCacheVersion();
+  const key = `lead-visibility:v${version}:${user._id}:${scope}`;
+  const { value } = await withJsonCache({ key, ttlSeconds: 600 }, async () => (
+    (await producer()).map(String)
+  ));
+  return value;
+};
 
 export const resolveLeadVisibility = async (user, resolvedAccess = null) => {
   if (isAdminUser(user)) {
@@ -17,9 +27,9 @@ export const resolveLeadVisibility = async (user, resolvedAccess = null) => {
 
   let userIds = [user._id];
   if (scope === 'team') {
-    userIds = await getUserTeamMemberIds(user);
+    userIds = await cachedScopedUserIds(user, scope, () => getUserTeamMemberIds(user));
   } else if (scope === 'hierarchy') {
-    userIds = await getDownlineUserIds(user._id);
+    userIds = await cachedScopedUserIds(user, scope, () => getDownlineUserIds(user._id));
   }
   userIds = userIds
     .filter((id) => mongoose.isValidObjectId(id))

@@ -13,6 +13,8 @@ import {
   calculateLeadStatsLegacy,
 } from '../leadStatsService.js';
 import {
+  buildCompanyLeadsPageCacheKey,
+  buildLeadDetailCacheKey,
   getCacheMetrics,
   getCachedJsonMany,
   setCachedJsonMany,
@@ -310,4 +312,50 @@ test('local cache serves repeated metric reads and batched reference reads', asy
     { key: keys[1], value: { id: 'b' } },
   ]);
   assert.deepEqual(await getCachedJsonMany(keys), [{ id: 'a' }, { id: 'b' }]);
+});
+
+test('lead page and detail cache keys isolate users, scopes, visibility and filters', async () => {
+  const common = {
+    role: 'sales',
+    accessScope: 'own',
+    visibleUserIds: ['507f1f77bcf86cd799439011'],
+  };
+  const firstUserPage = await buildCompanyLeadsPageCacheKey({
+    ...common,
+    userId: '507f1f77bcf86cd799439011',
+    filters: { page: 1, limit: 15, status: 'all' },
+  });
+  const secondUserPage = await buildCompanyLeadsPageCacheKey({
+    ...common,
+    userId: '507f1f77bcf86cd799439012',
+    filters: { page: 1, limit: 15, status: 'all' },
+  });
+  const secondPage = await buildCompanyLeadsPageCacheKey({
+    ...common,
+    userId: '507f1f77bcf86cd799439011',
+    filters: { page: 2, limit: 15, status: 'all' },
+  });
+  const teamPage = await buildCompanyLeadsPageCacheKey({
+    ...common,
+    userId: '507f1f77bcf86cd799439011',
+    accessScope: 'team',
+    filters: { page: 1, limit: 15, status: 'all' },
+  });
+  assert.notEqual(firstUserPage, secondUserPage);
+  assert.notEqual(firstUserPage, secondPage);
+  assert.notEqual(firstUserPage, teamPage);
+
+  const firstUserDetail = await buildLeadDetailCacheKey({
+    ...common,
+    userId: '507f1f77bcf86cd799439011',
+    leadType: 'Company',
+    leadId: '507f1f77bcf86cd799439099',
+  });
+  const secondUserDetail = await buildLeadDetailCacheKey({
+    ...common,
+    userId: '507f1f77bcf86cd799439012',
+    leadType: 'Company',
+    leadId: '507f1f77bcf86cd799439099',
+  });
+  assert.notEqual(firstUserDetail, secondUserDetail);
 });
