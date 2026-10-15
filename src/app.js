@@ -202,6 +202,9 @@ const defaultAllowedOrigins = [
   'http://localhost:8080',
   'https://crm.sellerslogin.com',
   'http://crm.sellerslogin.com',
+  'https://ophcrm.sellerslogin.com',
+  'http://ophcrm.sellerslogin.com',
+  'https://www.ophcrm.sellerslogin.com',
 ];
 
 const normalizeOrigin = (origin) => origin?.trim().replace(/\/$/, '');
