@@ -33,6 +33,11 @@ const startBackgroundRuntimes = async () => {
       .catch((error) => {
         console.error('[FollowUpScheduler] Runtime could not start:', error.message);
       }),
+    import('./services/indiamartSyncScheduler.js')
+      .then(({ startIndiaMartSyncRuntime }) => startIndiaMartSyncRuntime())
+      .catch((error) => {
+        console.error('[IndiaMART Worker] Runtime could not start:', error.message);
+      }),
   ]);
 };
 

@@ -30,6 +30,20 @@ const leadSchema = new mongoose.Schema({
   scheduledDateTime: {
     type: Date,
   },
+  source: {
+    type: String,
+    default: 'Manual',
+    trim: true,
+  },
+  queryId: {
+    type: String,
+    sparse: true,
+    trim: true,
+  },
+  productQuery: {
+    type: String,
+    trim: true,
+  },
   status: {
     type: String,
     enum: ['New', 'Demo Scheduled', 'Demo follow-up', 'Interested', 'Not Interested', 'Committed', 'Converted', 'Follow Up'],
@@ -89,6 +103,7 @@ const leadSchema = new mongoose.Schema({
 
 leadSchema.index({ createdBy: 1, assignedTo: 1, status: 1, createdAt: -1 });
 leadSchema.index({ scheduledDateTime: 1 });
+leadSchema.index({ queryId: 1 }, { unique: true, sparse: true });
 
 const Lead = mongoose.model('Lead', leadSchema);
 

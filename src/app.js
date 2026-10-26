@@ -33,6 +33,8 @@ import followUpRoutes from './routes/followUpRoutes.js';
 import teamRoutes from './routes/teamRoutes.js';
 import templateAccessRoutes from './routes/templateAccessRoutes.js';
 import auditLogRoutes from './routes/auditLogRoutes.js';
+import vendorRoutes from './routes/vendorRoutes.js';
+import integrationRoutes from './routes/integrationRoutes.js';
 import {
   resolveEffectiveAccess,
   userHasPermission,
@@ -289,6 +291,8 @@ app.use('/api/follow-ups', followUpRoutes);
 app.use('/api/teams', teamRoutes);
 app.use('/api/template-access', templateAccessRoutes);
 app.use('/api/audit-logs', auditLogRoutes);
+app.use('/api/vendors', vendorRoutes);
+app.use('/api/integrations', integrationRoutes);
 app.use('/api/email-marketing', lazyEmailMarketingRouter);
 app.use('/api/whatsapp-marketing', bridgeCrmUserToWhatsApp, lazyWhatsAppMarketingRouter);
 

@@ -113,6 +113,33 @@ const calculateEffectiveAccessWithRole = (user, role = null) => {
     };
   }
 
+  if (String(user?.role || '').toLowerCase() === 'vendor') {
+    return {
+      isAdmin: false,
+      isVendor: true,
+      permissions: [],
+      grants: [
+        'dashboard.view',
+        'leads.view',
+        'leads.create',
+        'leads.edit',
+        'leads.assign',
+        'leads.change_status',
+        'leads.add_note',
+        'employees.view',
+        'employees.manage',
+        'admin.settings.manage',
+      ],
+      scopes: {
+        leads: 'hierarchy',
+        employees: 'hierarchy',
+      },
+      teamIds: (user.teams || []).map(String),
+      roleId: null,
+      accessVersion: 2,
+    };
+  }
+
   const legacyPermissions = normalizePermissionList(role?.permissions);
   const accessVersion = Number(role?.permissionVersion || 1);
   const baseGrants = normalizePermissionList([

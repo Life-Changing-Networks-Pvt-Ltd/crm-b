@@ -685,7 +685,7 @@ export const updateLeadStatus = async (req, res, next) => {
     if (oldStatus !== newStatus) update.leadStatusChangedAt = statusChangedAt;
     if (scheduledDateTime) update.scheduledDateTime = scheduledDateTime;
     if (newStatus === 'Demo Scheduled' && scheduledDateTime) update.followTypeDate = scheduledDateTime;
-    if ((Model === Company && details !== undefined) || newStatus === 'Demo follow-up') {
+    if (details !== undefined || newStatus === 'Demo follow-up') {
       try {
         const parsedDetails = parseStatusDetails(newStatus, details);
         parsedStatusDetails = parsedDetails;

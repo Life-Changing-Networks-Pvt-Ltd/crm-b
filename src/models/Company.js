@@ -91,6 +91,7 @@ const companySchema = new mongoose.Schema({
   },
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   leadSource: { type: String, default: 'Direct' },
+  queryId: { type: String, sparse: true, trim: true },
   assignedTo: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
   leadStatus: {
     type: String,
@@ -154,6 +155,7 @@ companySchema.index(
 );
 companySchema.index({ city: 1, createdAt: -1 }, { name: 'company_city_createdAt' });
 companySchema.index({ leadStatus: 1, createdAt: 1 }, { name: 'company_leadStatus_createdAt' });
+companySchema.index({ queryId: 1 }, { unique: true, sparse: true });
 
 const Company = mongoose.model('Company', companySchema);
 

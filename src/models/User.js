@@ -69,6 +69,23 @@ const userSchema = new mongoose.Schema(
       type: Boolean,
       default: true,
     },
+    companyName: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    indiamart: {
+      apiKey: { type: String, trim: true, default: '' },
+      mobileNumber: { type: String, trim: true, default: '' },
+      autoSync: { type: Boolean, default: true },
+      lastSyncAt: { type: Date, default: null },
+      syncStatus: {
+        type: String,
+        enum: ['connected', 'disconnected', 'error'],
+        default: 'disconnected',
+      },
+      lastError: { type: String, default: '' },
+    },
     plivoEndpointId: { type: String, select: false },
     plivoEndpointUsername: { type: String, select: false },
     plivoEndpointPassword: { type: String, select: false },
@@ -86,6 +103,7 @@ userSchema.index({ createdAt: -1 });
 userSchema.index({ isActive: 1, name: 1 }, { name: 'user_active_name' });
 userSchema.index({ status: 1, createdAt: -1 }, { name: 'user_status_createdAt' });
 userSchema.index({ role: 1, createdAt: -1 }, { name: 'user_role_createdAt' });
+userSchema.index({ 'indiamart.syncStatus': 1, 'indiamart.autoSync': 1 });
 
 userSchema.pre('validate', function () {
   this.isActive = this.status !== 'inactive';
