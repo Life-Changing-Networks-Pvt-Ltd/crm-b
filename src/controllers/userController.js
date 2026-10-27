@@ -139,7 +139,7 @@ export const getUserOptions = async (req, res, next) => {
     const purpose = String(req.query.purpose || 'meeting');
     const search = String(req.query.search || '').trim();
     const filter = { isActive: true };
-    if (purpose === 'team') {
+    if (purpose === 'team' || purpose === 'assignment') {
       const ownerId = await resolveAccountOwnerId(req.user);
       filter._id = { $in: await getAccountUserIds(ownerId) };
     }

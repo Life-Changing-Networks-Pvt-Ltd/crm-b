@@ -24,6 +24,7 @@ const DEFAULT_SCOPES = Object.freeze({
   attendance: 'own',
   calls: 'own',
   reports: 'own',
+  tasks: 'own',
 });
 
 const getRoleForUser = async (user) => {
@@ -133,6 +134,7 @@ const calculateEffectiveAccessWithRole = (user, role = null) => {
       scopes: {
         leads: 'hierarchy',
         employees: 'hierarchy',
+        tasks: 'own',
       },
       teamIds: (user.teams || []).map(String),
       roleId: null,

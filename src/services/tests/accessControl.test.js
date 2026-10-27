@@ -37,6 +37,7 @@ import reportsRoutes from '../../routes/reportsRoutes.js';
 import settingsRoutes from '../../routes/settingsRoutes.js';
 import followUpRoutes from '../../routes/followUpRoutes.js';
 import auditLogRoutes from '../../routes/auditLogRoutes.js';
+import taskRoutes from '../../routes/taskRoutes.js';
 import {
   buildEmployeeVisibilityQuery,
   combineEmployeeFilters,
@@ -121,6 +122,22 @@ test('attendance permissions expose their own data scope', () => {
   assert.deepEqual(
     LEGACY_PAGE_PERMISSION_MAP['/reports/attendance'],
     [PERMISSIONS.ATTENDANCE_VIEW],
+  );
+});
+
+test('task permissions expose independent actions and their own data scope', () => {
+  const taskGroup = PERMISSION_GROUPS.find((group) => group.id === 'tasks');
+  assert.equal(taskGroup?.supportsScope, true);
+  assert.deepEqual(
+    taskGroup?.permissions.map((permission) => permission.key),
+    [
+      PERMISSIONS.TASKS_VIEW,
+      PERMISSIONS.TASKS_CREATE,
+      PERMISSIONS.TASKS_EDIT,
+      PERMISSIONS.TASKS_REVIEW,
+      PERMISSIONS.TASKS_ASSIGN,
+      PERMISSIONS.TASKS_DELETE,
+    ],
   );
 });
 
@@ -253,6 +270,19 @@ test('employee routes enforce permissions before list, detail, and write control
   assert.equal(handlerCount('/', 'get'), 3);
   assert.equal(handlerCount('/', 'post'), 3);
   assert.equal(handlerCount('/:id', 'get'), 3);
+  assert.equal(handlerCount('/:id', 'put'), 3);
+  assert.equal(handlerCount('/:id', 'delete'), 3);
+});
+
+test('task routes enforce permissions before every list and write controller', () => {
+  const route = (path) => taskRoutes.stack.find((layer) => layer.route?.path === path)?.route;
+  const handlerCount = (path, method) => (
+    route(path)?.stack.filter((layer) => layer.method === method).length || 0
+  );
+
+  assert.equal(handlerCount('/paged', 'get'), 3);
+  assert.equal(handlerCount('/', 'get'), 3);
+  assert.equal(handlerCount('/', 'post'), 3);
   assert.equal(handlerCount('/:id', 'put'), 3);
   assert.equal(handlerCount('/:id', 'delete'), 3);
 });
