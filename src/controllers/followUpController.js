@@ -26,6 +26,7 @@ const attachmentFromRequest = (req) => req.file ? {
 } : undefined;
 
 const activeKeyFor = (leadId) => `company:${leadId}`;
+const REMINDER_STATUSES = new Set(['Follow Up', 'Demo follow-up', 'Demo Scheduled']);
 
 const accessibleActiveFollowUp = async (id, user, access) => {
   if (!mongoose.isValidObjectId(id)) return null;
@@ -52,11 +53,25 @@ export const saveLeadFollowUp = async (req, res) => {
     if (!company) return res.status(404).json({ message: 'Company lead not found' });
 
     const required = req.body.followUpRequired === true || req.body.followUpRequired === 'true';
-    if (required && company.leadStatus !== 'Follow Up') {
-      return res.status(400).json({ message: 'Select Follow Up as the Lead Status first' });
+    const sourceStatus = String(req.body.sourceStatus || company.leadStatus);
+    if (required && (!REMINDER_STATUSES.has(sourceStatus) || sourceStatus !== company.leadStatus)) {
+      return res.status(400).json({ message: 'Select a reminder-enabled Lead Status first' });
     }
     const activeKey = activeKeyFor(company._id);
-    const existing = await FollowUp.findOne({ activeKey });
+    const activeFollowUps = await FollowUp.find({
+      lead: company._id,
+      status: { $in: ACTIVE_STATUSES },
+    });
+    const existing = activeFollowUps.find((item) => item.activeKey === activeKey)
+      || activeFollowUps[0]
+      || null;
+    const superseded = activeFollowUps.filter((item) => !existing || !item._id.equals(existing._id));
+    for (const item of superseded) {
+      item.status = 'Cancelled';
+      item.activeKey = undefined;
+      await item.save();
+      await cancelFollowUpReminder(item._id);
+    }
 
     if (!required) {
       if (existing) {
@@ -92,6 +107,7 @@ export const saveLeadFollowUp = async (req, res) => {
       activeKey,
       companyName: company.companyName,
       message,
+      sourceStatus,
       followUpDateTime: parsed.followUpDateTime,
       type: parsed.followUpType,
       priority: parsed.followUpPriority,
@@ -119,12 +135,30 @@ export const saveLeadFollowUp = async (req, res) => {
     company.followUpType = parsed.followUpType;
     company.followUpPriority = parsed.followUpPriority;
     company.followUpReminder = parsed.followUpReminder;
+    if (sourceStatus === 'Demo follow-up') {
+      company.statusDetails = {
+        ...(company.statusDetails?.toObject?.() || company.statusDetails || {}),
+        status: sourceStatus,
+        demoFollowUpDateTime: parsed.followUpDateTime,
+        reminder: parsed.followUpReminder,
+      };
+    }
+    if (sourceStatus === 'Demo Scheduled') {
+      company.statusDetails = {
+        ...(company.statusDetails?.toObject?.() || company.statusDetails || {}),
+        status: sourceStatus,
+        demoDateTime: parsed.followUpDateTime,
+        reminder: parsed.followUpReminder,
+      };
+      company.scheduledDateTime = parsed.followUpDateTime;
+      company.followTypeDate = parsed.followUpDateTime;
+    }
     await company.save();
     await scheduleFollowUpReminder(followUp._id, followUp.nextReminderAt);
     await sendAutomatedLeadStatusNotifications({
       leadType: 'Company',
       lead: company,
-      status: 'Follow Up',
+      status: sourceStatus,
       actorUserId: req.user._id,
       trigger: 'follow_up_saved',
     });
@@ -132,7 +166,14 @@ export const saveLeadFollowUp = async (req, res) => {
 
     return res.json({
       message: 'Follow-up saved successfully',
-      data: { followUp: followUp.toObject() },
+      data: {
+        followUp: followUp.toObject(),
+        schedule: {
+          status: sourceStatus,
+          followUpDateTime: parsed.followUpDateTime,
+          reminder: parsed.followUpReminder,
+        },
+      },
     });
   } catch (error) {
     if (error instanceof RangeError) return res.status(400).json({ message: error.message });

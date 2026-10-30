@@ -20,6 +20,11 @@ const followUpSchema = new mongoose.Schema({
     trim: true,
     maxlength: 4000,
   },
+  sourceStatus: {
+    type: String,
+    enum: ['Follow Up', 'Demo follow-up', 'Demo Scheduled'],
+    default: 'Follow Up',
+  },
   attachment: {
     url: String,
     fileType: String,

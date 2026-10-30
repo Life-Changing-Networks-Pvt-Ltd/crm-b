@@ -7,7 +7,6 @@ import Employee from '../models/Employee.js';
 import CallLog from '../models/CallLog.js';
 import LeadStatusHistory from '../models/LeadStatusHistory.js';
 import FollowUp from '../models/FollowUp.js';
-import { syncDemoFollowUpReminder } from '../services/demoFollowUpReminderService.js';
 import { successResponse, errorResponse } from '../utils/response.js';
 import { getDownlineUserIds, isAdminUser } from '../utils/hierarchy.js';
 import { logActivity } from '../utils/activity.js';
@@ -539,12 +538,20 @@ export const getUnifiedLead = async (req, res, next) => {
 
     if (!lead) return res.status(404).json({ success: false, message: 'Lead not found' });
 
-    const [statusHistory, messages] = await Promise.all([
+    const [statusHistory, statusComments, messages] = await Promise.all([
       LeadStatusHistory.find({ lead: id, leadModel: type })
         .populate('changedBy', 'name')
         .populate('call')
         .sort({ changedAt: -1 })
         .limit(200)
+        .lean(),
+      LeadStatusHistory.find({
+        lead: id,
+        leadModel: type,
+        comment: { $nin: [null, ''] },
+      })
+        .populate('changedBy', 'name')
+        .sort({ changedAt: -1 })
         .lean(),
       LeadMessage.find({ lead: id, leadModel: type })
         .populate('createdBy', 'name email')
@@ -556,6 +563,7 @@ export const getUnifiedLead = async (req, res, next) => {
     return successResponse(res, 200, 'Lead fetched', {
       ...lead.toObject(),
       statusHistory,
+      statusComments,
       messages,
     });
   } catch (error) {
@@ -687,7 +695,9 @@ export const updateLeadStatus = async (req, res, next) => {
     if (newStatus === 'Demo Scheduled' && scheduledDateTime) update.followTypeDate = scheduledDateTime;
     if (details !== undefined || newStatus === 'Demo follow-up') {
       try {
-        const parsedDetails = parseStatusDetails(newStatus, details);
+        const parsedDetails = parseStatusDetails(newStatus, details, new Date(), {
+          requireSchedule: false,
+        });
         parsedStatusDetails = parsedDetails;
         update.statusDetails = {
           ...parsedDetails,
@@ -702,7 +712,7 @@ export const updateLeadStatus = async (req, res, next) => {
         return errorResponse(res, 400, error.message);
       }
     }
-    if (Model === Company && newStatus !== 'Follow Up') {
+    if (Model === Company && oldStatus !== newStatus) {
       update.followUpRequired = false;
       update.followUpDateTime = null;
       update.followUpType = null;
@@ -712,10 +722,9 @@ export const updateLeadStatus = async (req, res, next) => {
 
     const lead = await Model.findByIdAndUpdate(id, update, { new: true });
 
-    if (Model === Company && newStatus !== 'Follow Up') {
+    if (Model === Company && oldStatus !== newStatus) {
       const activeFollowUps = await FollowUp.find({
         lead: lead._id,
-        ...(newStatus === 'Demo follow-up' ? { activeKey: { $ne: `demo-follow-up:${lead._id}` } } : {}),
         status: { $in: ['Pending', 'Snoozed'] },
       }).select('_id').lean();
       if (activeFollowUps.length) {
@@ -732,10 +741,6 @@ export const updateLeadStatus = async (req, res, next) => {
           cancelFollowUpReminder(followUp._id)
         )));
       }
-    }
-
-    if (Model === Company && (newStatus === 'Demo follow-up' || oldStatus === 'Demo follow-up')) {
-      await syncDemoFollowUpReminder(lead, req.user._id);
     }
 
     const lastCall = await CallLog.findOne({

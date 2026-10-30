@@ -134,6 +134,7 @@ test('follow-up records retain a durable reminder lifecycle and one sparse activ
     'lead',
     'message',
     'followUpDateTime',
+    'sourceStatus',
     'reminderBefore',
     'nextReminderAt',
     'lastRemindedAt',
@@ -158,6 +159,26 @@ test('status details validate demo and closure requirements', () => {
   assert.equal(demo.demoDateTime.toISOString(), '2026-08-01T10:00:00.000Z');
   assert.throws(() => parseStatusDetails('Demo Scheduled', {}), /Date & Time is required/);
   assert.throws(() => parseStatusDetails('Not Interested', {}), /reason is required/);
+});
+
+test('unified status comments can be saved before activity reminder scheduling', () => {
+  const demoFollowUp = parseStatusDetails(
+    'Demo follow-up',
+    { note: 'Call after the demo' },
+    new Date(),
+    { requireSchedule: false },
+  );
+  const demoScheduled = parseStatusDetails(
+    'Demo Scheduled',
+    { note: 'Demo requested', demoMode: 'Online' },
+    new Date(),
+    { requireSchedule: false },
+  );
+
+  assert.equal(demoFollowUp.demoFollowUpDateTime, null);
+  assert.equal(demoFollowUp.note, 'Call after the demo');
+  assert.equal(demoScheduled.demoDateTime, null);
+  assert.equal(demoScheduled.note, 'Demo requested');
 });
 
 test('company schema stores additive status-specific details', () => {

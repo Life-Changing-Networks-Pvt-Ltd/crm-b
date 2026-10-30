@@ -42,7 +42,12 @@ const cleanText = (value, field) => {
   return cleaned || null;
 };
 
-export const parseStatusDetails = (status, payload = {}, now = new Date()) => {
+export const parseStatusDetails = (
+  status,
+  payload = {},
+  now = new Date(),
+  { requireSchedule = true } = {},
+) => {
   const details = { status };
   for (const field of Object.keys(TEXT_LIMITS)) {
     details[field] = cleanText(payload[field], field);
@@ -77,11 +82,11 @@ export const parseStatusDetails = (status, payload = {}, now = new Date()) => {
     details.reminder = details.reminder || '30_minutes';
     if (!FOLLOW_UP_REMINDERS.includes(details.reminder)) throw new RangeError('Demo follow-up Reminder is invalid');
   }
-  if (status === 'Demo follow-up' && !details.demoFollowUpDateTime) {
+  if (requireSchedule && status === 'Demo follow-up' && !details.demoFollowUpDateTime) {
     throw new RangeError('Demo follow-up Date & Time is required');
   }
   if (status === 'Demo Scheduled') {
-    if (!details.demoDateTime) throw new RangeError('Demo Date & Time is required');
+    if (requireSchedule && !details.demoDateTime) throw new RangeError('Demo Date & Time is required');
     if (!['Online', 'On-site'].includes(details.demoMode)) {
       throw new RangeError('Demo Mode must be Online or On-site');
     }
