@@ -123,12 +123,14 @@ export const saveLeadFollowUp = async (req, res) => {
 
     let followUp;
     if (existing) {
-      Object.assign(existing, values);
-      existing.version += 1;
-      followUp = await existing.save();
-    } else {
-      followUp = await FollowUp.create({ ...values, createdBy: req.user._id });
+      existing.status = 'Completed';
+      existing.activeKey = undefined;
+      existing.completedAt = new Date();
+      existing.completedBy = req.user._id;
+      await existing.save();
+      await cancelFollowUpReminder(existing._id);
     }
+    followUp = await FollowUp.create({ ...values, createdBy: req.user._id });
 
     company.followUpRequired = true;
     company.followUpDateTime = parsed.followUpDateTime;

@@ -591,8 +591,11 @@ export const getUnifiedLeadActivity = async (req, res, next) => {
         .lean(),
     ]);
 
+    const statusComments = statusHistory.filter((item) => Boolean(item.comment && item.comment.trim()));
+
     return successResponse(res, 200, 'Lead activity fetched', {
       statusHistory,
+      statusComments,
       messages,
       comments: lead.comments || [],
     });
